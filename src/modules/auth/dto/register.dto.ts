@@ -8,6 +8,6 @@ export class RegisterDto {
 
     @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
     @IsString()
-    @MinLength(8)
+    @MinLength(6)
     password!: string;
 }
