@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum HouseholdRole {
+  OWNER
+  MEMBER
+}
+
+enum ChoreStatus {
+  PENDING
+  COMPLETED
+}
+
+model User {
+  id                   String             @id @default(uuid()) @db.Uuid
+  email                String             @unique
+  passwordHash         String             @map("password_hash")
+  createdAt            DateTime           @default(now()) @map("created_at")
+  householdsCreated    Household[]        @relation("HouseholdCreator")
+  householdMemberships HouseholdMember[]
+  assignedChores       ChoreInstance[]    @relation("AssignedChores")
+  completedChores      ChoreInstance[]    @relation("CompletedChores")
+  createdShoppingLists ShoppingList[]     @relation("ShoppingListCreator")
+  shoppingItemsAdded   ShoppingItem[]     @relation("ShoppingItemAddedBy")
+  shoppingItemsChecked ShoppingItem[]     @relation("ShoppingItemCheckedBy")
+  activities           ActivityLog[]      @relation("ActivityActor")
+
+  @@map("users")
+  @@index([createdAt], map: "idx_users_created_at")
+}
+
+model Household {
+  id              String            @id @default(uuid()) @db.Uuid
+  name            String
+  createdBy       String            @map("created_by") @db.Uuid
+  createdAt       DateTime          @default(now()) @map("created_at")
+  creator         User              @relation("HouseholdCreator", fields: [createdBy], references: [id])
+  members         HouseholdMember[]
+  choreTemplates  ChoreTemplate[]
+  choreInstances  ChoreInstance[]
+  shoppingLists   ShoppingList[]
+  activityEntries ActivityLog[]
+
+  @@map("households")
+  @@index([createdBy], map: "idx_households_created_by")
+  @@index([createdAt], map: "idx_households_created_at")
+}
+
+model HouseholdMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  householdId String        @map("household_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        HouseholdRole
+  joinedAt    DateTime      @default(now()) @map("joined_at")
+  household   Household     @relation(fields: [householdId], references: [id])
+  user        User          @relation(fields: [userId], references: [id])
+
+  @@map("household_members")
+  @@unique([householdId, userId], map: "uq_household_members_household_user")
+  @@index([householdId], map: "idx_household_members_household_id")
+  @@index([userId], map: "idx_household_members_user_id")
+  @@index([joinedAt], map: "idx_household_members_joined_at")
+}
+
+model ChoreTemplate {
+  id               String          @id @default(uuid()) @db.Uuid
+  householdId      String          @map("household_id") @db.Uuid
+  title            String
+  description      String?
+  estimatedMinutes Int?            @map("estimated_minutes")
+  recurrenceRule   String?         @map("recurrence_rule")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  household        Household       @relation(fields: [householdId], references: [id])
+  instances        ChoreInstance[]
+
+  @@map("chore_templates")
+  @@index([householdId], map: "idx_chore_templates_household_id")
+  @@index([createdAt], map: "idx_chore_templates_created_at")
+}
+
+model ChoreInstance {
+  id          String       @id @default(uuid()) @db.Uuid
+  templateId  String?      @map("template_id") @db.Uuid
+  householdId String       @map("household_id") @db.Uuid
+  assignedTo  String?      @map("assigned_to") @db.Uuid
+  status      ChoreStatus  @default(PENDING)
+  dueDate     DateTime     @map("due_date")
+  completedAt DateTime?    @map("completed_at")
+  completedBy String?      @map("completed_by") @db.Uuid
+  version     Int          @default(1)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  template    ChoreTemplate? @relation(fields: [templateId], references: [id])
+  household   Household    @relation(fields: [householdId], references: [id])
+  assignee    User?        @relation("AssignedChores", fields: [assignedTo], references: [id])
+  completer   User?        @relation("CompletedChores", fields: [completedBy], references: [id])
+
+  @@map("chore_instances")
+  @@index([householdId], map: "idx_chore_instances_household_id")
+  @@index([createdAt], map: "idx_chore_instances_created_at")
+  @@index([dueDate], map: "idx_chore_instances_due_date")
+  @@index([householdId, dueDate, createdAt], map: "idx_chore_instances_household_due_created")
+}
+
+model ShoppingList {
+  id          String         @id @default(uuid()) @db.Uuid
+  householdId String         @map("household_id") @db.Uuid
+  title       String
+  createdBy   String         @map("created_by") @db.Uuid
+  createdAt   DateTime       @default(now()) @map("created_at")
+  household   Household      @relation(fields: [householdId], references: [id])
+  creator     User           @relation("ShoppingListCreator", fields: [createdBy], references: [id])
+  items       ShoppingItem[]
+
+  @@map("shopping_lists")
+  @@index([householdId], map: "idx_shopping_lists_household_id")
+  @@index([createdAt], map: "idx_shopping_lists_created_at")
+  @@index([householdId, createdAt], map: "idx_shopping_lists_household_created_at")
+}
+
+model ShoppingItem {
+  id          String       @id @default(uuid()) @db.Uuid
+  listId      String       @map("list_id") @db.Uuid
+  name        String
+  quantity    String?
+  addedBy     String       @map("added_by") @db.Uuid
+  checked     Boolean      @default(false)
+  checkedBy   String?      @map("checked_by") @db.Uuid
+  checkedAt   DateTime?    @map("checked_at")
+  position    Int
+  list        ShoppingList @relation(fields: [listId], references: [id])
+  addedByUser User         @relation("ShoppingItemAddedBy", fields: [addedBy], references: [id])
+  checkedByUser User?      @relation("ShoppingItemCheckedBy", fields: [checkedBy], references: [id])
+
+  @@map("shopping_items")
+  @@index([listId], map: "idx_shopping_items_list_id")
+  @@unique([listId, position], map: "uq_shopping_items_list_position")
+  @@index([listId, checked, position], map: "idx_shopping_items_list_checked_position")
+}
+
+model ActivityLog {
+  id          String    @id @default(uuid()) @db.Uuid
+  householdId String    @map("household_id") @db.Uuid
+  actorId     String    @map("actor_id") @db.Uuid
+  type        String
+  entityType  String    @map("entity_type")
+  entityId    String    @map("entity_id")
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  household   Household @relation(fields: [householdId], references: [id])
+  actor       User      @relation("ActivityActor", fields: [actorId], references: [id])
+
+  @@map("activity_log")
+  @@index([householdId], map: "idx_activity_log_household_id")
+  @@index([createdAt], map: "idx_activity_log_created_at")
+  @@index([householdId, createdAt], map: "idx_activity_log_household_created_at")
+  @@index([actorId], map: "idx_activity_log_actor_id")
+}
